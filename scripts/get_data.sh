@@ -1,119 +1,230 @@
 #!/usr/bin/env bash
-# A1 — fetch or recreate your scanned corpus into data/raw/
-# Downloads files for the Archive.org item `ar-raheequl-makhtoom-bangla`
+
 set -euo pipefail
 
+# ============================================================
+# Configuration
+# ============================================================
+
+PDF_URL="https://archive.org/download/ar-raheequl-makhtoom-bangla/Ar_Raheequl_Makhtoom_Bangla.pdf"
 ITEM="ar-raheequl-makhtoom-bangla"
+FILENAME="Ar_Raheequl_Makhtoom_Bangla.pdf"
+
 OUTDIR="data/raw/$ITEM"
+OUTPATH="$OUTDIR/$FILENAME"
+TXTPATH="${OUTPATH%.pdf}.txt"
+
+TESS_LANG="ben+ara+eng"
+
+# ============================================================
+# 0. Install required Linux tools
+# ============================================================
+
+echo "======================================"
+echo " 0. INSTALLING OCR/PDF TOOLS"
+echo "======================================"
+
+sudo apt update
+
+sudo apt install -y \
+    curl \
+    ocrmypdf \
+    poppler-utils \
+    tesseract-ocr \
+    tesseract-ocr-ben \
+    tesseract-ocr-ara
+
+echo ""
+echo "Installed tools:"
+echo "  ocrmypdf:  $(command -v ocrmypdf)"
+echo "  tesseract: $(command -v tesseract)"
+echo "  pdftoppm:  $(command -v pdftoppm)"
+echo "  pdftotext: $(command -v pdftotext)"
+echo "  pdfinfo:   $(command -v pdfinfo)"
+
+echo ""
+echo "Tesseract languages:"
+tesseract --list-langs
+
+# ============================================================
+# 1. Prepare directories
+# ============================================================
+
 mkdir -p "$OUTDIR"
 
-echo "Fetching metadata for $ITEM..."
-if ! command -v curl >/dev/null 2>&1; then
-	echo "curl is required but not installed. Please install curl or download the item manually." >&2
-	exit 1
+# ============================================================
+# 2. Download PDF
+# ============================================================
+
+echo ""
+echo "======================================"
+echo " 1. DOWNLOADING PDF"
+echo "======================================"
+
+if [ -s "$OUTPATH" ]; then
+    echo "Already downloaded:"
+    echo "  $OUTPATH"
+else
+    echo "Downloading $FILENAME..."
+
+    curl \
+        -L \
+        -C - \
+        --fail \
+        --retry 3 \
+        --retry-delay 5 \
+        "$PDF_URL" \
+        -o "$OUTPATH"
+
+    echo "Download complete!"
 fi
 
-curl -s -L "https://archive.org/metadata/$ITEM" -o "$OUTDIR/metadata.json"
+# ============================================================
+# 3. OCR
+# ============================================================
 
-echo "Parsing metadata and downloading selected files into $OUTDIR"
-python - <<'PY'
-import json, os, subprocess, urllib.parse
+echo ""
+echo "======================================"
+echo " 2. OCR PIPELINE"
+echo "======================================"
 
-item = "ar-raheequl-makhtoom-bangla"
-outdir = os.path.join('data', 'raw', item)
-meta_path = os.path.join(outdir, 'metadata.json')
-with open(meta_path, 'r', encoding='utf-8') as f:
-	meta = json.load(f)
+if [ -s "$TXTPATH" ]; then
+    echo "Text already exists:"
+    echo "  $TXTPATH"
+else
 
-files = meta.get('files', [])
-wanted_exts = ('.pdf', '.djvu', '.txt', '.zip', '.jpg', '.jpeg', '.png', '.tif', '.tiff')
+    DONE=false
 
-for f in files:
-	name = f.get('name')
-	if not name:
-		continue
-	lname = name.lower()
-	if lname.endswith(wanted_exts) or f.get('format') in ('PDF', 'DjVu', 'Text', 'TXT', 'JPEG', 'PNG', 'TIFF'):
-		url = f"https://archive.org/download/{item}/{urllib.parse.quote(name)}"
-		outpath = os.path.join(outdir, name)
-		os.makedirs(os.path.dirname(outpath), exist_ok=True)
-		if os.path.exists(outpath):
-			print('Skipping existing', name)
-			continue
-		print('Downloading', name)
-		subprocess.check_call(['curl', '-L', '-C', '-', '-o', outpath, url])
+    # --------------------------------------------------------
+    # Method A: OCRmyPDF
+    # --------------------------------------------------------
 
-print('Download script finished.')
-PY
+    echo ""
+    echo "Trying OCRmyPDF..."
 
-echo "Files downloaded to $OUTDIR"
+    TMP_PDF="${OUTPATH%.pdf}.ocr.pdf"
 
-echo "Starting OCR pass for downloaded PDFs (if tools available)..."
-python - <<'PY'
-import os, subprocess, shutil, sys
-from pathlib import Path
+    if ocrmypdf \
+        --skip-text \
+        -l "$TESS_LANG" \
+        "$OUTPATH" \
+        "$TMP_PDF"
+    then
 
-item = 'ar-raheequl-makhtoom-bangla'
-outdir = Path('data') / 'raw' / item
-pdfs = list(outdir.rglob('*.pdf'))
-if not pdfs:
-	print('No PDFs found for OCR.')
-	sys.exit(0)
+        echo "OCRmyPDF succeeded."
 
-ocrmypdf = shutil.which('ocrmypdf')
-pdftotext = shutil.which('pdftotext')
-pdftoppm = shutil.which('pdftoppm')
-tesseract = shutil.which('tesseract')
+        if pdftotext "$TMP_PDF" "$TXTPATH"; then
+            echo "Text extraction succeeded."
+            rm -f "$TMP_PDF"
+            DONE=true
+        else
+            echo "pdftotext failed."
+            rm -f "$TMP_PDF"
+        fi
 
-TESS_LANG = os.environ.get('TESSERACT_LANG', 'ben')
+    else
+        echo "OCRmyPDF failed."
+        rm -f "$TMP_PDF"
+    fi
 
-def run_ocrmypdf(pdf_path, txt_path):
-	tmp_pdf = str(pdf_path.with_suffix('.ocr.pdf'))
-	try:
-		subprocess.check_call(['ocrmypdf', '--skip-text', str(pdf_path), tmp_pdf])
-		if pdftotext:
-			subprocess.check_call(['pdftotext', tmp_pdf, str(txt_path)])
-			return True
-	except Exception as e:
-		print('ocrmypdf failed for', pdf_path, e)
-	return False
+    # --------------------------------------------------------
+    # Method B: pdftoppm + Tesseract fallback
+    # --------------------------------------------------------
 
-def run_pdftoppm_tesseract(pdf_path, txt_path):
-	# Convert pages to images and run tesseract on each
-	try:
-		workdir = pdf_path.with_suffix('')
-		workdir = workdir.parent / (workdir.name + '_pages')
-		workdir.mkdir(parents=True, exist_ok=True)
-		prefix = str(workdir / 'page')
-		subprocess.check_call(['pdftoppm', '-png', str(pdf_path), prefix])
-		parts = sorted(workdir.glob('page-*.png')) + sorted(workdir.glob('page*.png'))
-		texts = []
-		for i, img in enumerate(parts):
-			out_txt_p = workdir / f'page_{i}.txt'
-			lang = TESS_LANG
-			subprocess.check_call(['tesseract', str(img), str(out_txt_p.with_suffix('')), '-l', lang])
-			with open(out_txt_p, 'r', encoding='utf-8', errors='ignore') as f:
-				texts.append(f.read())
-		with open(txt_path, 'w', encoding='utf-8') as f:
-			f.write('\n\n'.join(texts))
-		return True
-	except Exception as e:
-		print('pdftoppm+tesseract failed for', pdf_path, e)
-		return False
+    if [ "$DONE" = false ]; then
 
-for pdf in pdfs:
-	txt_path = pdf.with_suffix('.txt')
-	if txt_path.exists():
-		print('Skipping OCR; text exists for', pdf.name)
-		continue
-	print('OCRing', pdf.name)
-	done = False
-	if ocrmypdf:
-		done = run_ocrmypdf(pdf, txt_path)
-	if not done and pdftoppm and tesseract:
-		done = run_pdftoppm_tesseract(pdf, txt_path)
-	if not done:
-		print('Skipping', pdf.name, '- no OCR toolchain available or OCR failed.')
+        echo ""
+        echo "Falling back to pdftoppm + Tesseract..."
 
-print('OCR pass complete.')
-PY
+        WORKDIR="${OUTPATH%.pdf}_pages"
+
+        rm -rf "$WORKDIR"
+        mkdir -p "$WORKDIR"
+
+        echo "Converting PDF pages to PNG..."
+
+        pdftoppm \
+            -png \
+            "$OUTPATH" \
+            "$WORKDIR/page"
+
+        : > "$TXTPATH"
+
+        PAGE_COUNT=0
+        FAILED_COUNT=0
+
+        for img in "$WORKDIR"/page-*.png; do
+
+            PAGE_COUNT=$((PAGE_COUNT + 1))
+
+            base="${img%.png}"
+
+            echo "OCR page $PAGE_COUNT: $(basename "$img")"
+
+            if tesseract \
+                "$img" \
+                "$base" \
+                -l "$TESS_LANG"
+            then
+
+                if [ -f "$base.txt" ]; then
+                    cat "$base.txt" >> "$TXTPATH"
+                    printf '\n\n' >> "$TXTPATH"
+                fi
+
+            else
+                echo "WARNING: Tesseract failed on $(basename "$img")" >&2
+                FAILED_COUNT=$((FAILED_COUNT + 1))
+            fi
+
+        done
+
+        rm -rf "$WORKDIR"
+
+        if [ "$FAILED_COUNT" -eq 0 ]; then
+            DONE=true
+            echo "Fallback OCR completed successfully."
+        else
+            echo "WARNING: $FAILED_COUNT pages failed OCR." >&2
+        fi
+    fi
+
+    if [ "$DONE" = false ]; then
+        echo ""
+        echo "ERROR: OCR failed."
+        exit 1
+    fi
+fi
+
+# ============================================================
+# 4. Summary
+# ============================================================
+
+echo ""
+echo "======================================"
+echo " 3. CORPUS SUMMARY"
+echo "======================================"
+
+ls -lh "$OUTDIR"
+
+if command -v pdfinfo >/dev/null 2>&1; then
+    PAGES=$(pdfinfo "$OUTPATH" | awk '/^Pages:/ {print $2}')
+    echo ""
+    echo "PDF pages: $PAGES"
+fi
+
+if [ -s "$TXTPATH" ]; then
+    WORDS=$(wc -w < "$TXTPATH")
+    SIZE=$(du -h "$TXTPATH" | cut -f1)
+
+    echo "Text file: $TXTPATH"
+    echo "Text size: $SIZE"
+    echo "Extracted words: ~$WORDS"
+else
+    echo "WARNING: No text file produced."
+fi
+
+echo ""
+echo "======================================"
+echo " DONE"
+echo "======================================"
