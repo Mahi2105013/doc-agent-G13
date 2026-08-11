@@ -31,7 +31,7 @@ def run(pages: list[Page], cfg: dict) -> list[Page]:
         except ValueError:
             continue
             
-        if 17 <= page_idx <= 555:
+        if 16 <= page_idx <= 555:
             # 1. Read the image
             img = cv2.imread(page.image_path)
             if img is None:
