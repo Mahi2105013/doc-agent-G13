@@ -12,17 +12,21 @@ except ImportError:
 
 def load_pages(cfg: dict) -> list[Page]:
     """Read data/raw/ -> list[Page]. IMPLEMENT."""
+    # Ensure all operations run relative to the project root, not the current working directory
+    project_root = Path(__file__).resolve().parents[3]
+    
     ingest_dir = Path(__file__).parent
     pdf_files = list(ingest_dir.glob("*.pdf"))
     if not pdf_files:
         # fallback to data/raw just in case
-        pdf_files = list(Path("data/raw").glob("*.pdf"))
+        pdf_files = list((project_root / "data" / "raw").glob("*.pdf"))
         if not pdf_files:
-            raise FileNotFoundError("No PDF found in ingest folder or data/raw")
+            raise FileNotFoundError(f"No PDF found in ingest folder or {str(project_root / 'data' / 'raw')}")
             
     pdf_path = pdf_files[0]
-    out_dir = Path("data/raw/images")
+    out_dir = project_root / "data" / "raw" / "images"
     out_dir.mkdir(parents=True, exist_ok=True)
+
     
     pages = []
     doc = fitz.open(pdf_path)
