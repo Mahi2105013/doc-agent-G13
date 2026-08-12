@@ -9,9 +9,9 @@ except ImportError:
 
 def detect(pages: list[Page], cfg: dict) -> list[Region]:
     """Detect text/table/figure/heading regions. IMPLEMENT."""
-    # We will use keremberke/yolov8s-doclaynet which has all necessary classes.
+    # We will use hantian/yolo-doclaynet which has all necessary classes and is publicly available.
     # Custom downloaded to bypass needing it bundled locally.
-    model_path = hf_hub_download("keremberke/yolov8s-doclaynet", "best.pt")
+    model_path = hf_hub_download("hantian/yolo-doclaynet", "yolov8n-doclaynet.pt")
     model = YOLO(model_path)
     
     regions = []
