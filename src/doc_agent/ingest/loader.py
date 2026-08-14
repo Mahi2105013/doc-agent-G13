@@ -1,8 +1,18 @@
 """Stage 1 — load scanned page-images"""
 from __future__ import annotations
-import pymupdf as fitz
 from pathlib import Path
 
+try:
+    import fitz
+except ImportError:
+    try:
+        import pymupdf as fitz
+    except ImportError as e:
+        raise ImportError(
+            "PyMuPDF is required for loading PDF page images. "
+            "Install it with: pip install PyMuPDF"
+        ) from e
+        
 try:
     from ..contracts import Page  # noqa: F401
 except ImportError:

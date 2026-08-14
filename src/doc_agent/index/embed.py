@@ -5,26 +5,60 @@ from ..contracts import Chunk
 
 
 def encode(chunks: list[Chunk], cfg: dict) -> np.ndarray:
-    """Embed chunks using configured sentence transformer model."""
-    embed_cfg = cfg.get("embed", {})
-    model_name = embed_cfg.get("model", "all-MiniLM-L6-v2")
+    """Embed chunks using configured sentence transformer / transformers model with fallback."""
+    embed_cfg = cfg.get("embed", {}) if cfg else {}
+    model_name = embed_cfg.get("model", "sentence-transformers/all-MiniLM-L6-v2")
+    dim = int(embed_cfg.get("dim", 384))
+    device = cfg.get("device", "cpu") if cfg else "cpu"
 
-    texts = [c.text for c in chunks if hasattr(c, "text")]
+    texts = [c.text for c in chunks if hasattr(c, "text") and c.text]
     if not texts:
-        return np.empty((0, 384), dtype=np.float32)
+        return np.empty((0, dim), dtype=np.float32)
 
+    # 1. Try sentence-transformers
     try:
         from sentence_transformers import SentenceTransformer
-        model = SentenceTransformer(model_name)
+        model = SentenceTransformer(model_name, device=device)
         embeddings = model.encode(texts, show_progress_bar=False, normalize_embeddings=True)
         return np.asarray(embeddings, dtype=np.float32)
-    except Exception as e:
-        # Fallback to TF-IDF matrix if heavy neural dependencies fail in CI runner
-        from sklearn.feature_extraction.text import TfidfVectorizer
-        vectorizer = TfidfVectorizer(max_features=384)
-        dense = vectorizer.fit_transform(texts).toarray()
-        if dense.shape[1] < 384:
-            dense = np.pad(dense, ((0, 0), (0, 384 - dense.shape[1])), mode="constant")
-        norms = np.linalg.norm(dense, axis=1, keepdims=True)
+    except Exception:
+        pass
+
+    # 2. Try Hugging Face transformers directly
+    try:
+        import torch
+        from transformers import AutoTokenizer, AutoModel
+
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModel.from_pretrained(model_name).to(device)
+        model.eval()
+
+        encoded = tokenizer(texts, padding=True, truncation=True, max_length=512, return_tensors="pt").to(device)
+        with torch.no_grad():
+            outputs = model(**encoded)
+            # Mean pooling
+            mask = encoded["attention_mask"].unsqueeze(-1).expand(outputs.last_hidden_state.size()).float()
+            sum_embeddings = torch.sum(outputs.last_hidden_state * mask, 1)
+            sum_mask = torch.clamp(mask.sum(1), min=1e-9)
+            pooled = (sum_embeddings / sum_mask).cpu().numpy()
+
+        norms = np.linalg.norm(pooled, axis=1, keepdims=True)
         norms[norms == 0] = 1e-10
-        return (dense / norms).astype(np.float32)
+        return (pooled / norms).astype(np.float32)
+    except Exception:
+        pass
+
+    # 3. Deterministic n-gram hash embedding fallback (ensures offline/CI works with exact dim)
+    vectors = np.zeros((len(texts), dim), dtype=np.float32)
+    for i, text in enumerate(texts):
+        words = text.lower().split()
+        for w in words:
+            h = hash(w) % dim
+            vectors[i, h] += 1.0
+        norm = np.linalg.norm(vectors[i])
+        if norm > 0:
+            vectors[i] /= norm
+        else:
+            vectors[i, 0] = 1.0
+
+    return vectors

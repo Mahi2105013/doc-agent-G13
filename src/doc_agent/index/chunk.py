@@ -4,10 +4,10 @@ from ..contracts import Chunk
 
 
 def split(chunks: list[Chunk], cfg: dict) -> list[Chunk]:
-    """Re-chunk text using recursive character boundaries without external framework dependencies."""
-    index_cfg = cfg.get("index", {})
-    chunk_size = index_cfg.get("chunk_size", 500)
-    chunk_overlap = index_cfg.get("chunk_overlap", 50)
+    """Re-chunk text using recursive character boundaries adhering to contracts.Chunk."""
+    index_cfg = cfg.get("index", {}) if cfg else {}
+    chunk_size = index_cfg.get("chunk_tokens") or index_cfg.get("chunk_size", 500)
+    chunk_overlap = index_cfg.get("overlap") or index_cfg.get("chunk_overlap", 50)
     separators = ["\n\n", "\n", " ", ""]
 
     def _split_text(text: str, max_len: int, overlap: int) -> list[str]:
@@ -23,7 +23,7 @@ def split(chunks: list[Chunk], cfg: dict) -> list[Chunk]:
 
         splits = text.split(chosen_sep) if chosen_sep else list(text)
         docs = []
-        current_doc = []
+        current_doc: list[str] = []
         current_len = 0
 
         for split_part in splits:
@@ -48,31 +48,24 @@ def split(chunks: list[Chunk], cfg: dict) -> list[Chunk]:
 
     new_chunks: list[Chunk] = []
     for chunk in chunks:
-        text = getattr(chunk, "text", "") or ""
+        text = chunk.text if hasattr(chunk, "text") and chunk.text else ""
         if not text.strip():
             continue
 
         fragments = _split_text(text, chunk_size, chunk_overlap)
-        parent_id = getattr(chunk, "id", "chunk")
-        parent_doc_id = getattr(chunk, "doc_id", None)
-        parent_page_id = getattr(chunk, "page_id", None)
-        parent_meta = getattr(chunk, "metadata", {}) or {}
+        parent_id = chunk.id if hasattr(chunk, "id") and chunk.id else "chunk"
+        doc_id = chunk.doc_id if hasattr(chunk, "doc_id") and chunk.doc_id else "unknown_doc"
+        page_ids = list(chunk.page_ids) if hasattr(chunk, "page_ids") and chunk.page_ids else []
 
         for j, frag in enumerate(fragments):
-            meta = parent_meta.copy() if isinstance(parent_meta, dict) else {}
-            meta.update({
-                "chunk_index": j,
-                "total_chunks": len(fragments)
-            })
-
             new_chunks.append(
                 Chunk(
-                    id=f"{parent_id}_c{j}",
+                    id=f"{parent_id}_c{j}" if len(fragments) > 1 else parent_id,
+                    doc_id=doc_id,
                     text=frag,
-                    doc_id=parent_doc_id,
-                    page_id=parent_page_id,
-                    metadata=meta
+                    page_ids=page_ids,
+                    score=getattr(chunk, "score", 0.0),
                 )
             )
 
-    return new_chunks if new_chunks else chunks
+    return new_chunks if new_chunks else chunks

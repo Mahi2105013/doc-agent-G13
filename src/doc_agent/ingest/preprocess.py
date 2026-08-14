@@ -9,8 +9,15 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
     from doc_agent.contracts import Page
 
-import cv2
-import subprocess
+try:
+    import cv2
+except ImportError as e:
+    raise ImportError(
+        "OpenCV is required for Stage 1 preprocessing. "
+        "Install it with: pip install opencv-python"
+    ) from e
+import subprocess   
+
 
 def run(pages: list[Page], cfg: dict) -> list[Page]:
     """Classical preprocessing. IMPLEMENT."""
