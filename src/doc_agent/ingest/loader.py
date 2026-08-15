@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 try:
-    import fitz
+    import pymupdf as fitz
 except ImportError:
     try:
-        import pymupdf as fitz
+        import fitz
     except ImportError as e:
         raise ImportError(
             "PyMuPDF is required for loading PDF page images. "
