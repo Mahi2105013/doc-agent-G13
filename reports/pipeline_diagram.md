@@ -32,7 +32,7 @@ Detailed Flow:
    v
 7. embed.encode (Stage 4)
    - Extracts the textual content from chunks.
-   - Embeds vectors into high-dimensional space (default: all-MiniLM-L6-v2 via sentence-transformers).
+   - Embeds vectors into high-dimensional space (default: paraphrase-multilingual-MiniLM-L12-v2 via sentence-transformers).
    - Graceful fallback: TF-IDF vectorizer zero-padded to 384-dimensions if heavy neural frameworks are absent.
    - Outputs a normalized float32 numpy array.
    |
