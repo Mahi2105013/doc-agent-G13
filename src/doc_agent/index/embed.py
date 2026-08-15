@@ -7,7 +7,7 @@ from ..contracts import Chunk
 def encode(chunks: list[Chunk], cfg: dict) -> np.ndarray:
     """Embed chunks using configured sentence transformer / transformers model with fallback."""
     embed_cfg = cfg.get("embed", {}) if cfg else {}
-    model_name = embed_cfg.get("model", "sentence-transformers/all-MiniLM-L6-v2")
+    model_name = embed_cfg.get("model", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
     dim = int(embed_cfg.get("dim", 384))
     device = cfg.get("device", "cpu") if cfg else "cpu"
 
@@ -21,8 +21,8 @@ def encode(chunks: list[Chunk], cfg: dict) -> np.ndarray:
         model = SentenceTransformer(model_name, device=device)
         embeddings = model.encode(texts, show_progress_bar=False, normalize_embeddings=True)
         return np.asarray(embeddings, dtype=np.float32)
-    except Exception:
-        pass
+    except Exception as e:
+        raise RuntimeError(f"Could not load required embedding model {model_name}.") from e
 
     # 2. Try Hugging Face transformers directly
     try:
@@ -61,4 +61,4 @@ def encode(chunks: list[Chunk], cfg: dict) -> np.ndarray:
         else:
             vectors[i, 0] = 1.0
 
-    return vectors
+    return vectors
