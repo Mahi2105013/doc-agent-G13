@@ -1,6 +1,7 @@
 """Stage 4 — embed chunks"""
 from __future__ import annotations
 import numpy as np
+import torch
 from ..contracts import Chunk
 
 
@@ -9,7 +10,17 @@ def encode(chunks: list[Chunk], cfg: dict) -> np.ndarray:
     embed_cfg = cfg.get("embed", {}) if cfg else {}
     model_name = embed_cfg.get("model", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
     dim = int(embed_cfg.get("dim", 384))
-    device = cfg.get("device", "cpu") if cfg else "cpu"
+    requested_device = cfg.get("device", "cpu") if cfg else "cpu"
+
+    # Never request CUDA if this PyTorch installation doesn't support it.
+    if requested_device.startswith("cuda") and not torch.cuda.is_available():
+        print(
+            "CUDA requested by config, but CUDA is unavailable. "
+            "Falling back to CPU."
+        )
+        device = "cpu"
+    else:
+        device = requested_device
 
     texts = [c.text for c in chunks if hasattr(c, "text") and c.text]
     if not texts:
@@ -26,7 +37,7 @@ def encode(chunks: list[Chunk], cfg: dict) -> np.ndarray:
 
     # 2. Try Hugging Face transformers directly
     try:
-        import torch
+        # import torch
         from transformers import AutoTokenizer, AutoModel
 
         tokenizer = AutoTokenizer.from_pretrained(model_name)
