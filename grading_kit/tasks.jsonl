@@ -1,4 +1,5 @@
-{"id":"t1","question":"","verifiable":true,"judged":false,"gold":"","gold_pages":[],"needs_research":false}
+{"id":"t1","question":"নবী মুহাম্মদ (সা.) কোন গোত্রে জন্মগ্রহণ করেন?","verifiable":true,"judged":false,"gold":"কুরাইশ","gold_pages":[],"needs_research":false,"split":"train"}
+{"id":"t2","question":"হুদাইবিয়ার সন্ধির শর্তগুলো কী ছিল এবং মুসলমানরা সেগুলোকে কীভাবে মূল্যায়ন করেছিল?","verifiable":false,"judged":true,"gold":"","gold_pages":[],"needs_research":true,"split":"train"}
 # One line per eval item. Student-authored, grounded in YOUR corpus.
 # needs_research: true  = a TRIGGER item whose answer is NOT on the top chunk, so the agent MUST re-search.
 #                 false = a CONTROL item answerable from the top chunk (single pass).
